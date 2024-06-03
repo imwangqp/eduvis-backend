@@ -38,7 +38,7 @@ def getAnswerLog():
     stu_id = request.args.get('stu_id')
     try:
         cur = conn.cursor()
-        cur.execute("SELECT * FROM main.submitrecord WHERE student_ID=?", (stu_id,))
+        cur.execute("SELECT ms.state, mt.score, mt.knowledge FROM main.submitrecord as ms join main.titleinfo as mt WHERE student_ID=? and ms.title_ID=mt.title_ID", (stu_id,))
         rows = cur.fetchall()
         if not rows:
             return jsonify({
@@ -46,17 +46,12 @@ def getAnswerLog():
                 "code": 0,
             })
         data = [{
-            'index': row[0],
-            'class': row[1],
-            'time': row[2],
-            'state': row[3],
-            'title_ID': row[4],
-            'method': row[5],
-            'memory': row[6],
-            'timeconsume': row[7],
+            'status': row[0],
+            'score': row[1],
+            'knowledge': row[2],
         } for row in rows]
         return jsonify({
-            "msg": "答题日志返回成功",
+            "msg": "数据返回成功",
             "code": 1,
             "data": data
         })
