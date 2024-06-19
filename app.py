@@ -1,5 +1,6 @@
 import sqlite3
 
+import numpy as np
 from flask import *
 
 app = Flask(__name__)
@@ -111,7 +112,7 @@ def getKnowledgeMastery():
         conn.close()
 
 
-# 学习模式接口
+# 学习模式接口(未实现)
 @app.route('/getStudyMode', methods=['GET'])
 def getStudyMode():
     conn = get_db()
@@ -176,26 +177,26 @@ def getTitleStudentInfo():
         conn.close()
 
 
+# 一次性API
 # 学生信息接口
 @app.route('/getStudentInfo', methods=['GET'])
 def getStudentInfo():
     conn = get_db()
-    stu_id = request.args.get('student_ID')
     try:
         cur = conn.cursor()
         cur.execute(
-            "select si.student_ID,si.sex,si.age,si.major,sr3.time,sr3.state,sr3.method,ti.knowledge from submitrecord3 as sr3 join titleinfo as ti join studentinfo as si WHERE sr3.title_ID=ti.title_ID and sr3.student_ID=si.student_ID")
+            "select sr3.class,si.student_ID,si.sex,si.age,si.major,sr3.time,sr3.state,sr3.method,ti.knowledge from submitrecord3 as sr3 join titleinfo as ti join studentinfo as si WHERE sr3.title_ID=ti.title_ID and sr3.student_ID=si.student_ID")
         rows = cur.fetchall()
         students_data = {}
 
         # 处理每一行数据
         for row in rows:
-            student_ID, sex, age, major, time, state, method, knowledge = row
+            student_class, student_ID, sex, age, major, time, state, method, knowledge = row
             hour = (int(time / 86400) % 24) + 1
-
             # 如果学生ID不在字典中，初始化学生数据
             if student_ID not in students_data:
                 students_data[student_ID] = {
+                    "class": student_class,
                     "ID": student_ID,
                     "sex": sex,
                     "age": age,
@@ -206,7 +207,6 @@ def getStudentInfo():
                     "method": {},
                     "most_used_method": {"name": "", "value": 0}
                 }
-
             # 统计每个小时的记录数
             students_data[student_ID]["HotTime"][hour] += 1
             if knowledge not in students_data[student_ID]["Knowledge"]:
@@ -215,7 +215,6 @@ def getStudentInfo():
             students_data[student_ID]["Knowledge"][knowledge] += 1
             if state == "Absolutely_Correct":
                 students_data[student_ID]["badknowledge"][knowledge] += 1
-
             # 统计最常用的方法
             if method in students_data[student_ID]["method"]:
                 students_data[student_ID]["method"][method] += 1
@@ -245,6 +244,97 @@ def getStudentInfo():
             "code": 1,
             "data": list(students_data.values())
         })
+    except Exception as e:
+        return jsonify({"error": str(e)})
+    finally:
+        conn.close()
+
+
+# 一次性API
+# 每个题目下三类同学（error、partly correct、correct）的平均子知识点（该题目对应）掌握程度
+@app.route('/getTitleKnowledgeInfo', methods=['GET'])
+def getTitleKnowledgeInfo():
+    conn = get_db()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            "select ti.title_ID,ti.sub_knowledge,sr3.state,sr3.score,sr3.memory,sr3.timeconsume from titleinfo as ti join submitRecord3 sr3 where ti.title_ID=sr3.title_ID")
+        rows = cur.fetchall()
+        titles_data = {}
+        for row in rows:
+            title_ID, sub_knowledge, state, score, memory, timeconsume = row
+            if state == "Absolutely_Correct":
+                st = "correct"
+            # elif state == "Partly_Correct":
+            elif state == "Partially_Correct":
+                st = "partly_correct"
+            else:
+                st = "error"
+            if title_ID not in titles_data:
+                titles_data[title_ID] = {
+                    "id": title_ID,
+                    "value": [0, 0, 0],
+                    "knowledge": {
+                        "error": {
+                            "count": 0,
+                            "sum_score": 0,
+                            "sum_memory": 0,
+                            "sum_timeconsume": 0,
+                        },
+                        "partly_correct": {
+                            "count": 0,
+                            "sum_score": 0,
+                            "sum_memory": 0,
+                            "sum_timeconsume": 0,
+                        },
+                        "correct": {
+                            "count": 0,
+                            "sum_score": 0,
+                            "sum_memory": 0,
+                            "sum_timeconsume": 0,
+                        },
+                        "name": sub_knowledge,
+                    }
+                }
+            titles_data[title_ID]["knowledge"][st]["count"] += 1
+            titles_data[title_ID]["knowledge"][st]["sum_score"] += score
+            titles_data[title_ID]["knowledge"][st]["sum_memory"] += memory
+            titles_data[title_ID]["knowledge"][st]["sum_timeconsume"] += timeconsume
+        kscore = []
+        # 更换一下分子分母
+        for title in titles_data.values():
+            if title["knowledge"]["error"]["sum_score"] == 0:
+                t_error = 0
+            else:
+                t_error = title["knowledge"]["error"]["sum_score"] / (
+                        title["knowledge"]["error"]["sum_memory"] + title["knowledge"]["error"]["sum_timeconsume"])
+
+            if title["knowledge"]["partly_correct"]["sum_score"] == 0:
+                t_partly_correct = 0
+            else:
+                t_partly_correct = title["knowledge"]["partly_correct"]["sum_score"] / (
+                        title["knowledge"]["partly_correct"]["sum_memory"] +
+                        title["knowledge"]["partly_correct"]["sum_timeconsume"])
+
+            if title["knowledge"]["correct"]["sum_score"] == 0:
+                t_correct = 0
+            else:
+                t_correct = title["knowledge"]["correct"]["sum_score"] / (
+                        title["knowledge"]["correct"]["sum_memory"] + title["knowledge"]["correct"]["sum_timeconsume"])
+            kscore.append([t_error, t_partly_correct, t_correct])
+            title["knowledge"] = title["knowledge"]["name"]
+        column_mins = np.min(kscore, axis=1, keepdims=True)
+        column_maxs = np.max(kscore, axis=1, keepdims=True)
+        # 进行规格化
+        normalized_kscore = (kscore - column_mins) / (column_maxs - column_mins)
+        # 处理除以零的情况，如果max和min相同，则该列所有值都相同，避免除以零
+        normalized_kscore = np.where(column_maxs == column_mins, 0, normalized_kscore)
+        i = 0
+        for title in titles_data.values():
+            title["value"] = normalized_kscore[i].tolist()
+            i += 1
+        return jsonify(list(titles_data.values()))
+        # return jsonify(kscore)
     except Exception as e:
         return jsonify({"error": str(e)})
     finally:

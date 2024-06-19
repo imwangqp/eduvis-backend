@@ -23,5 +23,12 @@
         </library>
       </libraries>
     </data-source>
+    <data-source source="LOCAL" name="eduvis.sqlite" uuid="9c8618d0-89bc-4434-85d5-31e8386203d7">
+      <driver-ref>sqlite.xerial</driver-ref>
+      <synchronize>true</synchronize>
+      <jdbc-driver>org.sqlite.JDBC</jdbc-driver>
+      <jdbc-url>jdbc:sqlite:$PROJECT_DIR$/eduvis.sqlite</jdbc-url>
+      <working-dir>$ProjectFileDir$</working-dir>
+    </data-source>
   </component>
 </project>
