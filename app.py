@@ -483,6 +483,63 @@ def getTitleKnowledgeInfo():
         i += 1
     return titles_data
 
+@app.route('/getKnowledgeMastery', methods=['GET'])
+def getKnowledgeMastery():
+    conn = get_db()
+    stu_id = request.args.get('stu_id')
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT ms.score, ms.memory, ms.timeconsume,mt.knowledge FROM main.submitrecord2 as ms join main.titleinfo as mt WHERE student_ID=? and ms.title_ID=mt.title_ID",
+            (stu_id,))
+        rows = cur.fetchall()
+        if not rows:
+            return jsonify({
+                "msg": "学号无效",
+                "code": 0,
+            })
+        xAxis = {"r8S3g": 0, "t5V9e": 0, "m3D1v": 0, "s8Y2f": 0, "k4W1c": 0, "g7R2j": 0, "b3C9s": 0, "y9W5d": 0}
+        datda = {"r8S3g": [], "t5V9e": [], "m3D1v": [], "s8Y2f": [], "k4W1c": [], "g7R2j": [], "b3C9s": [], "y9W5d": []}
+        for row in rows:
+            xAxis[row[3]] += 1
+            if row[2] == '-' or row[2] == '--':
+                datda[row[3]].append([int(row[0]), int(row[1]) + 0])
+            else:
+                datda[row[3]].append([int(row[0]), int(row[1]) + int(row[2])])
+        for key in datda:
+            accumulate_score = 0
+            accumulate_index = 0
+            data = []
+            for value in datda[key]:
+                accumulate_score += value[0]
+                accumulate_index += value[1]
+                if accumulate_score == 0:
+                    data.append(0)
+                else:
+                    data.append(accumulate_index / accumulate_score)
+            min_value = min(data)
+            max_value = max(data)
+            datda[key] = [(value - min_value) / (max_value - min_value) for value in data]
+        max_num = sum(list(xAxis.values()))
+        for key in xAxis:
+            xAxis[key] = [0 for i in range(max_num)]
+        i = 0
+        for row in rows:
+            sub_knowledge = row[3]
+            xAxis[sub_knowledge][i] = 1
+            i = i + 1
+        return jsonify({
+            "msg": "数据返回成功",
+            "code": 1,
+            "data": {
+                "xAxis": list(xAxis.values()),
+                "datda": list(datda.values())
+            }
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)})
+    finally:
+        conn.close()
 
 if __name__ == '__main__':
     app.run(debug=True)
