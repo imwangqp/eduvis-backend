@@ -1,6 +1,5 @@
 import sqlite3
 
-import numpy as np
 from flask import *
 
 app = Flask(__name__)
@@ -98,6 +97,14 @@ def getKnowledgeMastery():
             min_value = min(data)
             max_value = max(data)
             datda[key] = [(value - min_value) / (max_value - min_value) for value in data]
+        max_num = sum(list(xAxis.values()))
+        for key in xAxis:
+            xAxis[key] = [0 for i in range(max_num)]
+        i = 0
+        for row in rows:
+            sub_knowledge = row[3]
+            xAxis[sub_knowledge][i] = 1
+            i = i + 1
         return jsonify({
             "msg": "数据返回成功",
             "code": 1,
@@ -105,34 +112,6 @@ def getKnowledgeMastery():
                 "xAxis": list(xAxis.values()),
                 "datda": list(datda.values())
             }
-        })
-    except Exception as e:
-        return jsonify({"error": str(e)})
-    finally:
-        conn.close()
-
-
-# 学习模式接口(未实现)
-@app.route('/getStudyMode', methods=['GET'])
-def getStudyMode():
-    conn = get_db()
-    stu_id = request.args.get('student_ID')
-    try:
-        cur = conn.cursor()
-        cur.execute(
-            "SELECT ms.state, ms.score, mt.knowledge FROM main.submitrecord2 as ms join main.titleinfo as mt WHERE student_ID=? and ms.title_ID=mt.title_ID",
-            (stu_id,))
-        rows = cur.fetchall()
-        if not rows:
-            return jsonify({
-                "msg": "学号无效",
-                "code": 0,
-            })
-        data = []
-        return jsonify({
-            "msg": "数据返回成功",
-            "code": 1,
-            "data": data
         })
     except Exception as e:
         return jsonify({"error": str(e)})
@@ -148,7 +127,7 @@ def getTitleStudentInfo():
     try:
         cur = conn.cursor()
         cur.execute(
-            "select sm.student_ID,sm.score,sm.s,ti.sub_knowledge from submitrecord3 as sm join titleinfo as ti WHERE sm.title_ID=? and sm.title_ID=ti.title_ID",
+            "select sm.student_ID,sm.score,sm.s,ti.sub_knowledge from submitRecord4UpdateS as sm join titleinfo as ti WHERE sm.title_ID=? and sm.title_ID=ti.title_ID",
             (title_ID,))
         rows = cur.fetchall()
         if not rows:
@@ -258,11 +237,31 @@ def getTitleKnowledgeInfo():
     try:
         cur = conn.cursor()
         cur.execute(
-            "select ti.title_ID,ti.sub_knowledge,sr3.state,sr3.score,sr3.memory,sr3.timeconsume from titleinfo as ti join submitRecord3 sr3 where ti.title_ID=sr3.title_ID")
+            "select sr4s.state,sr4s.student_ID,sr4s.s ,ti.title_ID,ti.sub_knowledge from submitRecord4UpdateS sr4s join titleinfo as ti where ti.title_ID=sr4s.title_ID")
         rows = cur.fetchall()
+        # knowledges = {}  # 学生对与每个知识点的最新知识掌握程度
+        # sub_knowledges = {}  # 学生对与每个知识点的最新知识掌握程度
+        # titles = []
+        # for row in rows:
+        #     state, student, s, title, sub_knowledge = row
+        #     if title not in titles:
+        #         titles.append(title)
+        #     if sub_knowledge not in sub_knowledges:
+        #         sub_knowledges[sub_knowledge] = [0, 0]
+        #     if student not in knowledges:
+        #         knowledges[student] = {}
+        #     if sub_knowledge not in knowledges[student]:
+        #         knowledges[student][sub_knowledge] = s
+        #     else:
+        #         knowledges[student][sub_knowledge] = (knowledges[student][sub_knowledge] + s) / 2
+        #
+        # for student in knowledges:
+        #     for sub_knowledge in knowledges[student]:
+        #         sub_knowledges[sub_knowledge][0] += 1
+        #         sub_knowledges[sub_knowledge][1] += knowledges[student][sub_knowledge]
         titles_data = {}
         for row in rows:
-            title_ID, sub_knowledge, state, score, memory, timeconsume = row
+            state, student_ID, s, title_ID, sub_knowledge = row
             if state == "Absolutely_Correct":
                 st = "correct"
             # elif state == "Partly_Correct":
@@ -273,68 +272,43 @@ def getTitleKnowledgeInfo():
             if title_ID not in titles_data:
                 titles_data[title_ID] = {
                     "id": title_ID,
-                    "value": [0, 0, 0],
-                    "knowledge": {
-                        "error": {
-                            "count": 0,
-                            "sum_score": 0,
-                            "sum_memory": 0,
-                            "sum_timeconsume": 0,
-                        },
-                        "partly_correct": {
-                            "count": 0,
-                            "sum_score": 0,
-                            "sum_memory": 0,
-                            "sum_timeconsume": 0,
-                        },
-                        "correct": {
-                            "count": 0,
-                            "sum_score": 0,
-                            "sum_memory": 0,
-                            "sum_timeconsume": 0,
-                        },
-                        "name": sub_knowledge,
-                    }
+                    "value": [],
+                    "knowledge": {},
+                    "Knowledge": []
                 }
-            titles_data[title_ID]["knowledge"][st]["count"] += 1
-            titles_data[title_ID]["knowledge"][st]["sum_score"] += score
-            titles_data[title_ID]["knowledge"][st]["sum_memory"] += memory
-            titles_data[title_ID]["knowledge"][st]["sum_timeconsume"] += timeconsume
-        kscore = []
-        # 更换一下分子分母
-        for title in titles_data.values():
-            if title["knowledge"]["error"]["sum_score"] == 0:
-                t_error = 0
-            else:
-                t_error = title["knowledge"]["error"]["sum_score"] / (
-                        title["knowledge"]["error"]["sum_memory"] + title["knowledge"]["error"]["sum_timeconsume"])
-
-            if title["knowledge"]["partly_correct"]["sum_score"] == 0:
-                t_partly_correct = 0
-            else:
-                t_partly_correct = title["knowledge"]["partly_correct"]["sum_score"] / (
-                        title["knowledge"]["partly_correct"]["sum_memory"] +
-                        title["knowledge"]["partly_correct"]["sum_timeconsume"])
-
-            if title["knowledge"]["correct"]["sum_score"] == 0:
-                t_correct = 0
-            else:
-                t_correct = title["knowledge"]["correct"]["sum_score"] / (
-                        title["knowledge"]["correct"]["sum_memory"] + title["knowledge"]["correct"]["sum_timeconsume"])
-            kscore.append([t_error, t_partly_correct, t_correct])
-            title["knowledge"] = title["knowledge"]["name"]
-        column_mins = np.min(kscore, axis=1, keepdims=True)
-        column_maxs = np.max(kscore, axis=1, keepdims=True)
-        # 进行规格化
-        normalized_kscore = (kscore - column_mins) / (column_maxs - column_mins)
-        # 处理除以零的情况，如果max和min相同，则该列所有值都相同，避免除以零
-        normalized_kscore = np.where(column_maxs == column_mins, 0, normalized_kscore)
-        i = 0
-        for title in titles_data.values():
-            title["value"] = normalized_kscore[i].tolist()
-            i += 1
+            if sub_knowledge not in titles_data[title_ID]["knowledge"]:
+                titles_data[title_ID]["knowledge"][sub_knowledge] = {
+                    "error": [0, 0],
+                    "partly_correct": [0, 0],
+                    "correct": [0, 0],
+                    "name": sub_knowledge,
+                }
+            titles_data[title_ID]["knowledge"][sub_knowledge][st][0] += 1
+            titles_data[title_ID]["knowledge"][sub_knowledge][st][1] += s
+        for title in titles_data.values():  # 遍历值
+            for sub_knowledge in title["knowledge"]:
+                title["Knowledge"].append(title["knowledge"][sub_knowledge]["name"])
+                if title["knowledge"][sub_knowledge]["error"][0] == 0:
+                    e = 0
+                else:
+                    e = title["knowledge"][sub_knowledge]["error"][1] / title["knowledge"][sub_knowledge]["error"][0]
+                if title["knowledge"][sub_knowledge]["partly_correct"][0] == 0:
+                    p = 0
+                else:
+                    p = title["knowledge"][sub_knowledge]["partly_correct"][1] / title["knowledge"][sub_knowledge][
+                        "partly_correct"][0]
+                if title["knowledge"][sub_knowledge]["correct"][0] == 0:
+                    c = 0
+                else:
+                    c = title["knowledge"][sub_knowledge]["correct"][1] / title["knowledge"][sub_knowledge]["correct"][
+                        0]
+                # mmax = max(e, p, c)
+                # mmin = min(e, p, c)
+                # e = (e - mmin) / (mmax - mmin)
+                # p = (p - mmin) / (mmax - mmin)
+                # c = (c - mmin) / (mmax - mmin)
+                title["value"].append([e, p, c])
         return jsonify(list(titles_data.values()))
-        # return jsonify(kscore)
     except Exception as e:
         return jsonify({"error": str(e)})
     finally:
